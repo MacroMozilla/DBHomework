@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flight Search</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #333; }
+        h1 { margin-bottom: 20px; }
+        h2 { margin: 24px 0 12px; color: #555; }
+
+        /* Search form */
+        .search-form { background: #f5f5f5; padding: 20px; border-radius: 8px; display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+        .search-form .field { display: flex; flex-direction: column; }
+        .search-form label { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+        .search-form input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; width: 140px; }
+        .search-form input[type="text"] { width: 80px; text-transform: uppercase; }
+        .search-form button { padding: 8px 20px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; height: 36px; }
+        .search-form button:hover { background: #1d4ed8; }
+
+        /* Flights table */
+        #flights-section { display: none; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e5e5; }
+        th { background: #f9fafb; font-size: 13px; color: #666; text-transform: uppercase; }
+        tr.flight-row { cursor: pointer; transition: background 0.15s; }
+        tr.flight-row:hover { background: #e8f5e9; }
+        tr.flight-row.selected { background: #166534; color: white; font-weight: bold; }
+        .no-results { color: #888; margin-top: 12px; }
+
+        /* Quick select buttons */
+        .quick-buttons { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .quick-btn { padding: 6px 14px; background: #e5e7eb; border: 2px solid transparent; border-radius: 20px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+        .quick-btn:hover { background: #e8f5e9; border-color: #166534; }
+        .quick-btn.selected { background: #166534; color: white; border-color: #166534; }
+
+        /* Detail panel */
+        #detail-section { display: none; margin-top: 24px; }
+        .detail-card { background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+        .detail-card.has-seats { border-color: #86efac; }
+        .detail-card.full { border-color: #fca5a5; }
+        .detail-item { display: flex; justify-content: space-between; padding: 4px 0; }
+        .detail-label { font-weight: bold; color: #555; }
+        .seat-summary { grid-column: 1 / -1; text-align: center; padding: 12px; margin-top: 8px; border-radius: 6px; font-size: 18px; }
+        .seat-summary.available { background: #dcfce7; color: #166534; }
+        .seat-summary.full { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+<body>
+    <h1>Flight Search</h1>
+
+    <!-- a) Search form -->
+    <form class="search-form" id="searchForm">
+        <div class="field">
+            <label for="origin">Origin</label>
+            <input type="text" id="origin" name="origin" placeholder="JFK" maxlength="3" required>
+        </div>
+        <div class="field">
+            <label for="destination">Destination</label>
+            <input type="text" id="destination" name="destination" placeholder="LAX" maxlength="3" required>
+        </div>
+        <div class="field">
+            <label for="date_from">From</label>
+            <input type="date" id="date_from" name="date_from" value="2025-12-29" required>
+        </div>
+        <div class="field">
+            <label for="date_to">To</label>
+            <input type="date" id="date_to" name="date_to" value="2025-12-31" required>
+        </div>
+        <button type="submit">Search</button>
+    </form>
+
+    <!-- b) Flight results -->
+    <div id="flights-section">
+        <h2 id="results-title"></h2>
+
+        <!-- Quick select buttons -->
+        <div class="quick-buttons" id="quickButtons"></div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Flight</th>
+                    <th>Departure</th>
+                    <th>Origin</th>
+                    <th>Destination</th>
+                </tr>
+            </thead>
+            <tbody id="flightsBody"></tbody>
+        </table>
+    </div>
+
+    <!-- c) Flight detail -->
+    <div id="detail-section">
+        <h2>Flight Detail</h2>
+        <div class="detail-card" id="detailCard">
+            <div class="detail-item"><span class="detail-label">Flight</span><span id="d-flight"></span></div>
+            <div class="detail-item"><span class="detail-label">Airline</span><span id="d-airline"></span></div>
+            <div class="detail-item"><span class="detail-label">Route</span><span id="d-route"></span></div>
+            <div class="detail-item"><span class="detail-label">Departure</span><span id="d-datetime"></span></div>
+            <div class="detail-item"><span class="detail-label">Duration</span><span id="d-duration"></span></div>
+            <div class="detail-item"><span class="detail-label">Plane</span><span id="d-plane"></span></div>
+            <div class="seat-summary" id="d-seats"></div>
+        </div>
+    </div>
+
+    <script>
+        const searchForm = document.getElementById('searchForm');
+        const flightsSection = document.getElementById('flights-section');
+        const flightsBody = document.getElementById('flightsBody');
+        const quickButtons = document.getElementById('quickButtons');
+        const detailSection = document.getElementById('detail-section');
+        const detailCard = document.getElementById('detailCard');
+
+        let currentFlights = [];
+
+        // a) Search
+        searchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const params = new URLSearchParams({
+                origin: document.getElementById('origin').value,
+                destination: document.getElementById('destination').value,
+                date_from: document.getElementById('date_from').value,
+                date_to: document.getElementById('date_to').value,
+            });
+
+            const res = await fetch('/api/flights?' + params);
+            currentFlights = await res.json();
+            renderFlights();
+            detailSection.style.display = 'none';
+        });
+
+        // b) Render flight list + quick buttons
+        function renderFlights() {
+            const origin = document.getElementById('origin').value.toUpperCase();
+            const dest = document.getElementById('destination').value.toUpperCase();
+            document.getElementById('results-title').textContent =
+                `${origin} → ${dest}  (${currentFlights.length} flight${currentFlights.length !== 1 ? 's' : ''})`;
+
+            flightsBody.innerHTML = '';
+            quickButtons.innerHTML = '';
+
+            if (currentFlights.length === 0) {
+                flightsBody.innerHTML = '<tr><td colspan="4" class="no-results">No flights found.</td></tr>';
+                flightsSection.style.display = 'block';
+                return;
+            }
+
+            currentFlights.forEach((f, i) => {
+                // Table row
+                const tr = document.createElement('tr');
+                tr.className = 'flight-row';
+                tr.dataset.index = i;
+                tr.innerHTML = `
+                    <td>${f.flight_number}</td>
+                    <td>${f.departure_date} ${f.departure_time}</td>
+                    <td>${f.origin_code}</td>
+                    <td>${f.dest_code}</td>`;
+                tr.addEventListener('click', () => selectFlight(i));
+                flightsBody.appendChild(tr);
+
+                // Quick button
+                const btn = document.createElement('button');
+                btn.className = 'quick-btn';
+                btn.textContent = `${f.flight_number} (${f.departure_date})`;
+                btn.dataset.index = i;
+                btn.addEventListener('click', () => selectFlight(i));
+                quickButtons.appendChild(btn);
+            });
+
+            flightsSection.style.display = 'block';
+        }
+
+        // c) Select a flight and show detail
+        async function selectFlight(index) {
+            const f = currentFlights[index];
+
+            // Highlight row
+            document.querySelectorAll('.flight-row').forEach(r => r.classList.remove('selected'));
+            document.querySelector(`.flight-row[data-index="${index}"]`).classList.add('selected');
+
+            // Highlight button
+            document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('selected'));
+            document.querySelector(`.quick-btn[data-index="${index}"]`).classList.add('selected');
+
+            // Fetch detail
+            const res = await fetch(`/api/flight/${f.flight_number}/${f.departure_date}`);
+            const d = await res.json();
+
+            document.getElementById('d-flight').textContent = d.flight_number;
+            document.getElementById('d-airline').textContent = d.airline;
+            document.getElementById('d-route').textContent = `${d.origin} → ${d.dest}`;
+            document.getElementById('d-datetime').textContent = `${d.departure_date} ${d.departure_time}`;
+            document.getElementById('d-duration').textContent = d.duration;
+            document.getElementById('d-plane').textContent = d.plane_type;
+
+            const seatsEl = document.getElementById('d-seats');
+            seatsEl.innerHTML = `<strong>${d.available}</strong> / ${d.capacity} seats available (${d.booked} booked)`;
+            seatsEl.className = 'seat-summary ' + (d.available > 0 ? 'available' : 'full');
+
+            detailCard.className = 'detail-card ' + (d.available > 0 ? 'has-seats' : 'full');
+            detailSection.style.display = 'block';
+            detailSection.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
